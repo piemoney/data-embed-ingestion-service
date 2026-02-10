@@ -1,0 +1,79 @@
+spring:
+  application:
+    name: data-embed-ingestion-service
+
+# Confluence (Atlassian REST API)
+confluence:
+  base-url: ${CONFLUENCE_BASE_URL:https://your-instance.atlassian.net}
+  api-path: /wiki/rest/api/content
+  username: ${CONFLUENCE_USERNAME:}
+  api-token: ${CONFLUENCE_API_TOKEN:}
+  # Optional: limit pages per space for testing
+  max-pages-per-space: ${CONFLUENCE_MAX_PAGES:0}  # 0 = no limit
+
+# Jira (Atlassian REST API)
+jira:
+  base-url: ${JIRA_BASE_URL:https://your-instance.atlassian.net}
+  username: ${JIRA_USERNAME:}
+  api-token: ${JIRA_API_TOKEN:}
+  max-issues-per-project: ${JIRA_MAX_ISSUES:0}  # 0 = no limit
+
+# GitHub (REST API)
+github:
+  api-url: ${GITHUB_API_URL:https://api.github.com}
+  api-token: ${GITHUB_API_TOKEN:}  # GitHub Personal Access Token
+  repositories: ${GITHUB_REPOSITORIES:}  # Comma-separated: "owner/repo1,owner/repo2"
+  file-extensions: ${GITHUB_FILE_EXTENSIONS:.md,.txt,.rst,.adoc}
+  max-file-size-kb: ${GITHUB_MAX_FILE_SIZE:500}
+
+# FileSystem (local files)
+filesystem:
+  base-paths: ${FILESYSTEM_BASE_PATHS:}  # Comma-separated paths: "/path/to/docs,/path/to/wiki"
+  file-extensions: ${FILESYSTEM_FILE_EXTENSIONS:.md,.txt,.pdf,.docx,.html}
+  max-file-size-kb: ${FILESYSTEM_MAX_FILE_SIZE:1000}
+  recursive: ${FILESYSTEM_RECURSIVE:true}
+
+# Hugging Face Inference API (embeddings)
+# Uses: https://router.huggingface.co/hf-inference/models/{model}
+# API token is required - get it from https://huggingface.co/settings/tokens
+huggingface:
+  api-url: https://router.huggingface.co  # Base URL (not used directly, kept for compatibility)
+  endpoint: /hf-inference/models  # Endpoint path prefix (not used, model path is built dynamically)
+  model: BAAI/bge-m3  # Model name: BAAI/bge-m3 (multilingual, 4096 dimensions)
+  api-token: ${HUGGINGFACE_API_TOKEN:}  # Required: Hugging Face API token (hf_...)
+  # Max tokens per chunk for embedding (model context)
+  max-tokens-per-request: 512
+
+# Qdrant vector database (gRPC)
+qdrant:
+  host: ${QDRANT_HOST:e43adb7c-57ef-458f-89aa-2045ed0a8b81.us-east-1-1.aws.cloud.qdrant.io}
+  port: ${QDRANT_PORT:6334}  # gRPC port (6333 is REST)
+  use-tls: ${QDRANT_USE_TLS:true}  # true for Cloud, false for local
+  api-key: ${QDRANT_API_KEY:}  # Required for Qdrant Cloud; leave empty for local
+  collection-name: ${QDRANT_COLLECTION:enterprise-knowledge-base}
+  vector-size: 4096  # BAAI/bge-m3 dimension
+  # Optional: recreate collection on startup (set to true if collection has wrong vector config)
+  # If you get "Not existing vector name" error, set this to true to recreate collection
+  recreate-collection: false
+
+# LLM for generating responses (RAG)
+# Uses Hugging Face OpenAI-compatible API: https://router.huggingface.co/v1/chat/completions
+# Model format: "meta-llama/Llama-3.1-8B-Instruct:novita" or "meta-llama/Llama-3.1-8B-Instruct"
+llm:
+  api-url: https://router.huggingface.co/v1  # OpenAI-compatible endpoint
+  model: meta-llama/Llama-3.1-8B-Instruct:novita  # Model name. Alternatives: meta-llama/Llama-3.1-8B-Instruct, google/flan-t5-large
+  api-token: ${HUGGINGFACE_API_TOKEN:}  # Same token as embeddings
+  max-tokens: 512  # Maximum tokens in response
+  temperature: 0.7  # 0.0 = deterministic, 1.0 = creative
+
+# Ingestion defaults
+ingestion:
+  chunk:
+    target-tokens-min: 300  # Minimum tokens per chunk
+    target-tokens-max: 500  # Maximum tokens per chunk
+    overlap-tokens: 50  # Overlap between chunks for better context
+  # Approximate chars per token for English (used when no tokenizer available)
+  chars-per-token: 4
+  # Batch processing
+  batch-size: 50  # Number of chunks to process in parallel
+  embed-batch-size: 8  # Batch size for embedding API calls
