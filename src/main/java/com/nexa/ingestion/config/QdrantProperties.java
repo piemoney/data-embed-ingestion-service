@@ -31,7 +31,7 @@ public class QdrantProperties {
     private String collectionName = "knowledge-base";
 
     @Positive
-    private int vectorSize = 768;
+    private int vectorSize = 1024;  // BAAI/bge-large-en-v1.5 default; must match embedding model
 
     /**
      * API key for Qdrant Cloud or secured instances. Leave empty for local unauthenticated Qdrant.

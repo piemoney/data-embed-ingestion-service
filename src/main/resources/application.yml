@@ -4,7 +4,7 @@ spring:
 
 # Confluence (Atlassian REST API)
 confluence:
-  base-url: ${CONFLUENCE_BASE_URL:https://your-instance.atlassian.net}
+  base-url: https://piemoneybusiness.atlassian.net
   api-path: /wiki/rest/api/content
   username: ${CONFLUENCE_USERNAME:}
   api-token: ${CONFLUENCE_API_TOKEN:}
@@ -39,7 +39,7 @@ filesystem:
 huggingface:
   api-url: https://router.huggingface.co  # Base URL (not used directly, kept for compatibility)
   endpoint: /hf-inference/models  # Endpoint path prefix (not used, model path is built dynamically)
-  model: BAAI/bge-m3  # Model name: BAAI/bge-m3 (multilingual, 4096 dimensions)
+  model: BAAI/bge-large-en-v1.5 # Model name: BAAI/bge-large-en-v1.5
   api-token: ${HUGGINGFACE_API_TOKEN:}  # Required: Hugging Face API token (hf_...)
   # Max tokens per chunk for embedding (model context)
   max-tokens-per-request: 512
@@ -50,10 +50,9 @@ qdrant:
   port: ${QDRANT_PORT:6334}  # gRPC port (6333 is REST)
   use-tls: ${QDRANT_USE_TLS:true}  # true for Cloud, false for local
   api-key: ${QDRANT_API_KEY:}  # Required for Qdrant Cloud; leave empty for local
-  collection-name: ${QDRANT_COLLECTION:enterprise-knowledge-base}
-  vector-size: 4096  # BAAI/bge-m3 dimension
-  # Optional: recreate collection on startup (set to true if collection has wrong vector config)
-  # If you get "Not existing vector name" error, set this to true to recreate collection
+  collection-name: ${QDRANT_COLLECTION:sample-kb}
+  vector-size: 1024  # Must match embedding model: BAAI/bge-large-en-v1.5 = 1024
+  # Set to true once to recreate collection with correct vector size (1024), then re-ingest and set back to false
   recreate-collection: false
 
 # LLM for generating responses (RAG)
