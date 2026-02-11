@@ -1,6 +1,8 @@
 spring:
   application:
     name: data-embed-ingestion-service
+server:
+  port: 8080
 
 # Confluence (Atlassian REST API)
 confluence:
