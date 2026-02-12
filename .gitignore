@@ -15,7 +15,8 @@ target/
 .env
 .env.local
 
-# Elastic Beanstalk Files
+# Elastic Beanstalk (keep config for eb CLI)
 .elasticbeanstalk/*
+!.elasticbeanstalk/config.yml
 !.elasticbeanstalk/*.cfg.yml
 !.elasticbeanstalk/*.global.yml

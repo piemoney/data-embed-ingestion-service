@@ -87,9 +87,31 @@ public class LLMService {
                 });
     }
 
+    private static final String SYSTEM_PROMPT = """
+You are a helpful, knowledgeable AI assistant. Answer questions based on the provided context.
+
+**Response Guidelines:**
+- Be conversational yet professional
+- Be concise but thorough
+- If the context doesn't contain enough information, say so honestly
+- Don't make up information not present in the context
+
+**Formatting Rules:**
+- Use clean Markdown formatting
+- Use **bold** for emphasis on key terms
+- Use bullet points (- ) for lists
+- Use numbered lists (1. 2. 3.) for sequential steps
+- Keep paragraphs short (2-3 sentences max)
+- Use code blocks (```) for any code, commands, or technical syntax
+- Add a blank line between sections for readability
+
+**Response Structure:**
+Start with a direct answer to the question, then provide supporting details if needed. End with actionable suggestions or next steps when relevant.
+""";
+
     /**
      * Generates a response with context (RAG pattern).
-     * Combines context documents with the query into a prompt.
+     * Uses a system prompt for ChatGPT-style Markdown formatting.
      *
      * @param query user query
      * @param context context documents (retrieved from vector search)
@@ -100,20 +122,67 @@ public class LLMService {
             return Mono.error(new IllegalArgumentException("Query cannot be blank"));
         }
 
-        StringBuilder promptBuilder = new StringBuilder();
-        promptBuilder.append("Based on the following context, answer the question.\n\n");
-        promptBuilder.append("Context:\n");
+        StringBuilder userPrompt = new StringBuilder();
+        userPrompt.append("**Context:**\n\n");
         
         if (context != null && !context.isEmpty()) {
             for (int i = 0; i < context.size(); i++) {
-                promptBuilder.append(i + 1).append(". ").append(context.get(i)).append("\n");
+                userPrompt.append(i + 1).append(". ").append(context.get(i)).append("\n\n");
             }
         } else {
-            promptBuilder.append("No specific context provided.\n");
+            userPrompt.append("No specific context provided.\n\n");
         }
         
-        promptBuilder.append("\nQuestion: ").append(query).append("\n\nAnswer:");
+        userPrompt.append("**Question:** ").append(query);
 
-        return generate(promptBuilder.toString());
+        return generateWithSystemPrompt(SYSTEM_PROMPT, userPrompt.toString());
+    }
+
+    /**
+     * Generates a response with both system and user prompts.
+     * Uses OpenAI-compatible chat completions with system message.
+     *
+     * @param systemPrompt instructions for response style/format
+     * @param userPrompt the user's question with context
+     * @return Mono of generated text response
+     */
+    public Mono<String> generateWithSystemPrompt(String systemPrompt, String userPrompt) {
+        Map<String, Object> requestBody = Map.of(
+                "model", properties.getModel(),
+                "messages", List.of(
+                        Map.of("role", "system", "content", systemPrompt),
+                        Map.of("role", "user", "content", userPrompt)
+                ),
+                "max_tokens", properties.getMaxTokens(),
+                "temperature", properties.getTemperature(),
+                "stream", false
+        );
+
+        return webClient.post()
+                .uri("/chat/completions")
+                .bodyValue(requestBody)
+                .retrieve()
+                .bodyToMono(Map.class)
+                .map(response -> {
+                    @SuppressWarnings("unchecked")
+                    List<Map<String, Object>> choices = (List<Map<String, Object>>) response.get("choices");
+                    if (choices != null && !choices.isEmpty()) {
+                        Map<String, Object> firstChoice = choices.get(0);
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> message = (Map<String, Object>) firstChoice.get("message");
+                        if (message != null) {
+                            Object content = message.get("content");
+                            if (content != null) {
+                                return content.toString().trim();
+                            }
+                        }
+                    }
+                    throw new RuntimeException("Unexpected LLM response format: " + response);
+                })
+                .onErrorMap(e -> {
+                    String errorMsg = String.format("LLM generation failed for model '%s': %s",
+                            properties.getModel(), e.getMessage());
+                    return new RuntimeException(errorMsg, e);
+                });
     }
 }

@@ -255,6 +255,69 @@ az container create \
     HUGGINGFACE_API_TOKEN=hf_your_token
 ```
 
+### 8. AWS Elastic Beanstalk
+
+The JAR does not include `.platform` or `.ebextensions`; you must deploy a **source bundle** that contains the JAR plus those folders and the Procfile.
+
+#### Option A: Build bundle script (recommended)
+
+1. Create the deployment zip (includes JAR, `.platform/`, `.ebextensions/`, Procfile):
+
+   ```bash
+   chmod +x scripts/build-eb-bundle.sh
+   ./scripts/build-eb-bundle.sh
+   # Creates eb-deployment.zip in project root
+   ```
+
+2. Upload and deploy:
+   - **Console**: AWS Elastic Beanstalk → Application → Environment → "Upload and deploy" → choose `eb-deployment.zip`.
+   - **AWS CLI**: Create an application version and deploy it (see below). Plain `eb deploy` from the repo would not include the JAR, so use the bundle zip for deployment.
+
+#### Option B: EB CLI + bundle zip
+
+1. Install [EB CLI](https://docs.aws.amazon.com/elasticbeanstalk/latest/dg/eb-cli3-install.html).
+
+2. First-time setup:
+
+   ```bash
+   eb init   # choose region, app name; or use existing .elasticbeanstalk/config.yml
+   eb create data-embed-ingestion-service-env   # or use an existing environment
+   ```
+
+3. Build the bundle, then deploy the zip. `eb deploy` alone would zip the repo (without the JAR), so use one of:
+
+   **Upload in Console** (simplest): After `./scripts/build-eb-bundle.sh`, open your environment in the AWS Console and use "Upload and deploy" with `eb-deployment.zip`.
+
+   **Or create a version with AWS CLI and deploy**:
+
+   ```bash
+   ./scripts/build-eb-bundle.sh
+   aws s3 cp eb-deployment.zip s3://your-eb-bucket/eb-deployment-$(date +%Y%m%d-%H%M).zip --region ap-south-1
+   aws elasticbeanstalk create-application-version \
+     --application-name data-embed-ingestion-service \
+     --version-label "v-$(date +%Y%m%d-%H%M)" \
+     --source-bundle S3Bucket=your-eb-bucket,S3Key=eb-deployment-YYYYMMDD-HHMM.zip \
+     --region ap-south-1
+   eb deploy --version "v-$(date +%Y%m%d-%H%M)"
+   ```
+
+   Replace `your-eb-bucket` with the S3 bucket Elastic Beanstalk uses for your account/region.
+
+4. Configure environment variables in the Elastic Beanstalk console (Configuration → Software → Environment properties), e.g. `QDRANT_HOST`, `QDRANT_API_KEY`, `HUGGINGFACE_API_TOKEN`, etc.
+
+#### What the bundle contains
+
+| Item | Purpose |
+|------|--------|
+| `data-embed-ingestion-service.jar` | Application (renamed from `*-1.0.0-SNAPSHOT.jar` to match Procfile) |
+| `Procfile` | Starts `java -jar data-embed-ingestion-service.jar --server.port=8080` |
+| `.platform/nginx/conf.d/proxy.conf` | Nginx proxies port 80 → 127.0.0.1:8080 |
+| `.ebextensions/01_application_port.config` | Sets `PORT=8080` for EB health checks and proxy |
+
+#### Platform
+
+Use **Corretto 17** or **Java 17** on **Amazon Linux 2023**. The `.elasticbeanstalk/config.yml` defaults to `Corretto 17 running on 64bit Amazon Linux 2023` and region `ap-south-1`; change if needed.
+
 ## Health Checks
 
 The service exposes a health endpoint at `/actuator/health` (if Spring Boot Actuator is enabled).

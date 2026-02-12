@@ -2,7 +2,20 @@ spring:
   application:
     name: data-embed-ingestion-service
 server:
-  port: 8080
+  port: 5000
+
+# Logging configuration
+logging:
+  level:
+    root: INFO
+    com.nexa.ingestion: DEBUG  # More detailed logs for your application
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/application.log  # Optional: write to file (defaults to stdout)
+    max-size: 10MB
+    max-history: 30
 
 # Confluence (Atlassian REST API)
 confluence:

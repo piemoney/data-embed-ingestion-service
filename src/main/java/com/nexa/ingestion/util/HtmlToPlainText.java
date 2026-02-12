@@ -17,6 +17,16 @@ public class HtmlToPlainText {
      * @return plain text, never null
      */
     public String toPlainText(String html) {
+        return convert(html);
+    }
+
+    /**
+     * Static method to convert HTML to plain text.
+     *
+     * @param html raw HTML
+     * @return plain text, never null
+     */
+    public static String convert(String html) {
         if (html == null || html.isBlank()) {
             return "";
         }

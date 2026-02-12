@@ -2,8 +2,12 @@ package com.nexa.ingestion.web;
 
 import com.nexa.ingestion.service.UnifiedIngestionService;
 import org.springframework.http.MediaType;
+import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.web.bind.annotation.*;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+
+import java.util.List;
 
 /**
  * REST endpoints for unified ingestion from multiple sources.
@@ -65,6 +69,38 @@ public class IngestionController {
     @PostMapping(value = "/filesystem", produces = MediaType.APPLICATION_JSON_VALUE)
     public Mono<IngestionResultDto> ingestFileSystem() {
         return unifiedIngestionService.ingestFileSystem()
+                .map(r -> new IngestionResultDto(r.documentsProcessed, r.chunksProcessed));
+    }
+
+    /**
+     * Ingest a single uploaded file.
+     * POST /api/ingest/file
+     * Content-Type: multipart/form-data
+     *
+     * Supports: .txt, .md, .html, .pdf, .docx
+     *
+     * Example curl:
+     * curl -X POST http://localhost:8080/api/ingest/file \
+     *   -F "file=@/path/to/document.txt"
+     */
+    @PostMapping(value = "/file", consumes = MediaType.MULTIPART_FORM_DATA_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    public Mono<IngestionResultDto> ingestFile(@RequestPart("file") Mono<FilePart> fileMono) {
+        return fileMono.flatMap(unifiedIngestionService::ingestUploadedFile)
+                .map(r -> new IngestionResultDto(r.documentsProcessed, r.chunksProcessed));
+    }
+
+    /**
+     * Ingest multiple uploaded files.
+     * POST /api/ingest/files
+     * Content-Type: multipart/form-data
+     *
+     * Example curl:
+     * curl -X POST http://localhost:8080/api/ingest/files \
+     *   -F "files=@doc1.txt" -F "files=@doc2.md"
+     */
+    @PostMapping(value = "/files", consumes = MediaType.MULTIPART_FORM_DATA_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    public Mono<IngestionResultDto> ingestFiles(@RequestPart("files") Flux<FilePart> files) {
+        return unifiedIngestionService.ingestUploadedFiles(files)
                 .map(r -> new IngestionResultDto(r.documentsProcessed, r.chunksProcessed));
     }
 

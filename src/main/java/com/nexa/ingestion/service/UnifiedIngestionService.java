@@ -5,17 +5,26 @@ import com.nexa.ingestion.config.IngestionProperties;
 import com.nexa.ingestion.dto.DocumentMetadata;
 import com.nexa.ingestion.dto.SourceDocument;
 import com.nexa.ingestion.dto.qdrant.QdrantPoint;
+import com.nexa.ingestion.util.HtmlToPlainText;
+import org.apache.tika.Tika;
+import org.apache.tika.exception.TikaException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.io.buffer.DataBufferUtils;
+import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Stream;
 
 /**
  * Unified ingestion orchestrator for multiple sources.
@@ -35,6 +44,7 @@ public class UnifiedIngestionService {
     private final QdrantService qdrantService;
     private final HuggingFaceProperties huggingFaceProperties;
     private final IngestionProperties ingestionProperties;
+    private final Tika tika;
 
     public UnifiedIngestionService(
             ConfluenceService confluenceService,
@@ -55,6 +65,7 @@ public class UnifiedIngestionService {
         this.qdrantService = qdrantService;
         this.huggingFaceProperties = huggingFaceProperties;
         this.ingestionProperties = ingestionProperties;
+        this.tika = new Tika();
     }
 
     /**
@@ -169,6 +180,147 @@ public class UnifiedIngestionService {
                         }));
     }
 
+    // Supported file extensions for upload
+    private static final Set<String> SUPPORTED_EXTENSIONS = Set.of(
+            ".txt", ".md", ".html", ".htm", ".pdf", ".docx"
+    );
+
+    /**
+     * Ingests a single uploaded file.
+     *
+     * @param filePart the uploaded file
+     * @return ingestion result
+     */
+    public Mono<IngestionResult> ingestUploadedFile(FilePart filePart) {
+        String filename = filePart.filename();
+        log.info("Ingesting uploaded file: {}", filename);
+
+        String extension = getFileExtension(filename).toLowerCase();
+        if (!SUPPORTED_EXTENSIONS.contains(extension)) {
+            log.warn("Unsupported file type: {}", extension);
+            return Mono.just(new IngestionResult(0, 0));
+        }
+
+        return qdrantService.ensureCollection()
+                .then(readFileContent(filePart, extension))
+                .flatMap(content -> {
+                    if (content == null || content.isBlank()) {
+                        return Mono.just(new IngestionResult(0, 0));
+                    }
+
+                    SourceDocument doc = new SourceDocument();
+                    doc.setId(UUID.randomUUID().toString());
+                    doc.setTitle(filename);
+                    doc.setContent(content);
+                    doc.setSourceType("Upload");
+                    doc.setSecurityLevel("internal");
+                    doc.setLanguage("en");
+                    doc.setCreatedAt(Instant.now());
+                    doc.setUpdatedAt(Instant.now());
+
+                    return processDocument(doc)
+                            .map(r -> new IngestionResult(1, r.chunksProcessed));
+                })
+                .onErrorResume(e -> {
+                    log.error("Error ingesting file {}: {}", filename, e.getMessage());
+                    return Mono.just(new IngestionResult(0, 0));
+                });
+    }
+
+    /**
+     * Ingests multiple uploaded files.
+     *
+     * @param files flux of uploaded files
+     * @return aggregated ingestion result
+     */
+    public Mono<IngestionResult> ingestUploadedFiles(Flux<FilePart> files) {
+        log.info("Ingesting multiple uploaded files");
+        return qdrantService.ensureCollection()
+                .thenMany(files.flatMap(this::ingestUploadedFile, 5))
+                .collectList()
+                .map(results -> {
+                    int totalDocs = results.stream().mapToInt(r -> r.documentsProcessed).sum();
+                    int totalChunks = results.stream().mapToInt(r -> r.chunksProcessed).sum();
+                    log.info("Uploaded files ingestion complete: {} documents, {} chunks", totalDocs, totalChunks);
+                    return new IngestionResult(totalDocs, totalChunks);
+                });
+    }
+
+    /**
+     * Reads file content using Apache Tika.
+     * Supports: .txt, .md, .html, .pdf, .docx, and many other formats.
+     * Tika automatically detects file type and extracts text.
+     */
+    private Mono<String> readFileContent(FilePart filePart, String extension) {
+        return DataBufferUtils.join(filePart.content())
+                .map(dataBuffer -> {
+                    byte[] bytes = new byte[dataBuffer.readableByteCount()];
+                    dataBuffer.read(bytes);
+                    DataBufferUtils.release(dataBuffer);
+                    return bytes;
+                })
+                .map(bytes -> {
+                    try {
+                        String extensionLower = extension.toLowerCase();
+
+                        // Use Tika for PDF and DOCX (handles font issues better than PDFBox)
+                        if (".pdf".equals(extensionLower) || ".docx".equals(extensionLower)) {
+                            return extractTextWithTika(bytes);
+                        }
+
+                        // Handle HTML files - convert to plain text
+                        if (".html".equals(extensionLower) || ".htm".equals(extensionLower)) {
+                            String content = new String(bytes, StandardCharsets.UTF_8);
+                            return HtmlToPlainText.convert(content);
+                        }
+
+                        // For other text files, try Tika first (handles encoding better)
+                        // Fallback to plain string if Tika fails
+                        try {
+                            return extractTextWithTika(bytes);
+                        } catch (Exception e) {
+                            log.debug("Tika extraction failed for {}, using plain text: {}", extension, e.getMessage());
+                            return new String(bytes, StandardCharsets.UTF_8);
+                        }
+                    } catch (Exception e) {
+                        log.error("Error reading file content: {}", e.getMessage(), e);
+                        return "";
+                    }
+                })
+                .onErrorResume(e -> {
+                    log.error("Error processing file: {}", e.getMessage(), e);
+                    return Mono.just("");
+                });
+    }
+
+    /**
+     * Extracts text from files using Apache Tika.
+     * Tika automatically detects file type and extracts text.
+     * Handles PDF, DOCX, and many other formats without font issues.
+     *
+     * @param fileBytes file bytes
+     * @return extracted text, empty string on error
+     */
+    private String extractTextWithTika(byte[] fileBytes) {
+        try (InputStream inputStream = new ByteArrayInputStream(fileBytes)) {
+            String text = tika.parseToString(inputStream);
+            return text != null ? text.trim() : "";
+        } catch (IOException | TikaException e) {
+            log.warn("Error extracting text with Tika: {}", e.getMessage());
+            return "";
+        } catch (Exception e) {
+            log.error("Unexpected error in Tika extraction: {}", e.getMessage(), e);
+            return "";
+        }
+    }
+
+    private String getFileExtension(String filename) {
+        if (filename == null || !filename.contains(".")) {
+            return "";
+        }
+        return filename.substring(filename.lastIndexOf("."));
+    }
+
     /**
      * Processes a single document: chunks, generates embeddings, stores in Qdrant.
      */
@@ -272,4 +424,5 @@ public class UnifiedIngestionService {
             this.chunksProcessed = chunksProcessed;
         }
     }
+
 }

@@ -1,0 +1,24 @@
+branch-defaults:
+  main:
+    environment: Search-api-prod-env
+  develop:
+    environment: search-api-prod-env
+environment-defaults:
+  search-api-prod-env:
+    branch: null
+    repository: null
+  search-api-prod-env:
+    branch: null
+    repository: null
+global:
+  application_name: search-api-prod
+  default_ec2_keyname: null
+  default_platform: Corretto 17 running on 64bit Amazon Linux 2023
+  default_region: ap-south-1
+  include_git_submodules: true
+  instance_profile: null
+  platform_name: null
+  platform_version: null
+  profile: null
+  sc: git
+  workspace_type: Application
